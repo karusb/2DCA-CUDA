@@ -37,7 +37,6 @@ void handleSpecialKeypress(int key, int x, int y) {
 }
 
 void printInstructions() {
-	printf("flashlight interactions\n");
 	printf("a: toggle mouse tracking mode\n");
 	printf("arrow keys: move ref location\n");
 	printf("esc: close graphics window\n");

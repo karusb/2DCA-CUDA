@@ -4,8 +4,8 @@
 #include <stdlib.h>  
 #include <stdio.h>
 #include <algorithm>
-#define PanelW 3840
-#define PanelH 2160
+#define PanelW 100
+#define PanelH 100
 //
 
 //#include <GL\GL.h>
@@ -259,7 +259,7 @@ int main(int argc,char** argv)
 	const int reqGens = 1000;
 	
 	//IV
-	for (int i = (WorldH/2)*WorldW; i < WorldSize; i++)
+	for (int i =0 /*(WorldH/2)*WorldW*/; i < WorldSize; i++)
 	{
 		CAGrid[i] = rand() % 2;
 #ifdef CPUGRAPHICS
@@ -421,7 +421,11 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
         goto Error;
     
 	}
-
+	cudaFree(d_CAGrid);
+	cudaFree(d_next_CAGrid);
+	cudaGraphicsUnregisterResource(cudaPboResource);
+	glDeleteBuffers(1, &GLbufferID);
+	glDeleteTextures(1, &GLtexture);
 Error:
     cudaFree(d_CAGrid);
     cudaFree(d_next_CAGrid);
