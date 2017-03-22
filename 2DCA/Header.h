@@ -1,10 +1,12 @@
 #pragma once
  int2 loc = { PanelW / 2, PanelH / 2 };
  bool dragMode = false; // mouse tracking mode
+ bool cont = false;
 #define DELTA 5 // pixel increment for arrow keys
 void keyboard(unsigned char key, int x, int y) {
 	if (key == 'a') dragMode = !dragMode; // toggle tracking mode
 	if (key == 27)  exit(0);
+	if (key == 32)cont = !cont;
 	glutPostRedisplay();
 
 }

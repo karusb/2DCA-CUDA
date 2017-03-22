@@ -4,8 +4,8 @@
 #include <stdlib.h>  
 #include <stdio.h>
 #include <algorithm>
-#define PanelW 1024
-#define PanelH 728
+#define PanelW 3840
+#define PanelH 2160
 //
 
 //#include <GL\GL.h>
@@ -29,6 +29,7 @@ uchar4 *d_texturedata = nullptr;
 uchar4 *d_bufferdata = nullptr;
 uchar4 *GLout = nullptr;
 bool *d_CAGrid = nullptr;
+bool *d_next_CAGrid = nullptr;
 
 cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size, unsigned int WorldH, unsigned int WorldW,unsigned int gen,int*argc,char**argv);
 /*
@@ -84,10 +85,6 @@ __global__ void NextDumbKernel(bool *CAGrid, bool *NextCAGrid)
 void OpenGLHelper(unsigned int width,unsigned int height)
 {
 
-
-	//float4 *h_texturedata = new float4[width * height];
-	//float4 *h_bufferdata = new float4[width * height];
-
 	glGenTextures(1, &GLtexture);
 	glBindTexture(GL_TEXTURE_2D, GLtexture);
 	
@@ -132,7 +129,7 @@ bool initGLUT(int* argc, char** argv,unsigned int width,unsigned int height) {
 	return true;
 }
 void drawTexture(unsigned int width,unsigned int height) {
-	glColor3f(1.0f, 1.0f, 1.0f);
+	//glColor3f(1.0f, 1.0f, 1.0f);
 	glBindTexture(GL_TEXTURE_2D, GLtexture);
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, GLbufferID);
 
@@ -222,6 +219,18 @@ void displayfunc()
 	int WorldH = PanelH;
 	dim3 kernelwsize(WorldW, WorldH);
 	dim3 kernelbsize(1);
+	if (cont)
+	{
+		NextGenKernel << <kernelwsize, kernelbsize >> > (d_CAGrid, d_next_CAGrid, WorldH, WorldW);
+		//NextDumbKernel << <kernelwsize, kernelbsize  >> > (d_CAGrid, d_next_CAGrid);//,d_WorldH,d_WorldW);
+		// Check for any errors launching the kernel
+
+		std::swap(d_CAGrid, d_next_CAGrid);
+		// cudaDeviceSynchronize waits for the kernel to finish, and returns
+		// any errors encountered during the launch.
+		cudaDeviceSynchronize();
+
+	}
 	//LAUNCH OTHER KERNEL HERE
 	cudaGraphicsMapResources(1, &cudaPboResource, 0);
 	size_t num_bytes;
@@ -235,6 +244,7 @@ void displayfunc()
 	cudaGraphicsUnmapResources(1, &cudaPboResource, 0);
 	drawTexture(WorldW, WorldH);
 	glutSwapBuffers();
+	if (cont)glutPostRedisplay();
 	
 }
 int main(int argc,char** argv)
@@ -338,7 +348,7 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
         goto Error;
     }
 
-	bool *d_next_CAGrid; cudaStatus = cudaMalloc((void**)&d_next_CAGrid, sizeof(bool) *size); // ALLOCATE THE SAME MEMORY SIZE AS CPU FOR GPU
+	/*bool *d_next_CAGrid; */cudaStatus = cudaMalloc((void**)&d_next_CAGrid, sizeof(bool) *size); // ALLOCATE THE SAME MEMORY SIZE AS CPU FOR GPU
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed with nextGrid!");
         goto Error;
@@ -355,6 +365,8 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
     }
 
     // Launch a kernel on the GPU with one thread for each element.
+	//REPLACED BY GLUT DISPLAY FUNC
+	/*
 	for (int i = 0; i < gen; i++)
 	{
 		NextGenKernel << <kernelwsize, kernelbsize >> > (d_CAGrid, d_next_CAGrid, WorldH, WorldW);
@@ -399,6 +411,7 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
 
 		
 	}
+	*/
 	glutMainLoop();
 
     // Copy output vector from GPU buffer to host memory.
