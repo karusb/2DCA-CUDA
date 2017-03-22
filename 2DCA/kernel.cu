@@ -4,7 +4,8 @@
 #include <stdlib.h>  
 #include <stdio.h>
 #include <algorithm>
-
+#define PanelW 1024
+#define PanelH 728
 //
 
 //#include <GL\GL.h>
@@ -16,7 +17,7 @@
 //#include <GL\wglew.h>
 #include <GL\freeglut.h>
 #include "cuda_gl_interop.h"
-
+#include "Header.h"
 #define nCPUGRAPHICS
 
 
@@ -105,7 +106,7 @@ void OpenGLHelper(unsigned int width,unsigned int height)
 	
 	glGenBuffers(1, &GLbufferID);
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GLbufferID);
-	glBufferData(GL_PIXEL_UNPACK_BUFFER, width * height * sizeof(uchar4), d_bufferdata, GL_STREAM_DRAW);
+	glBufferData(GL_PIXEL_UNPACK_BUFFER, width * height * sizeof(uchar4), d_bufferdata, GL_STREAM_COPY);
 
 	//glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 	
@@ -202,9 +203,9 @@ __global__ void GLKernel(uchar4 *d_buf,bool *CAGrid, int WorldH, int WorldW)
 		if (CAGrid[id])
 		{
 			d_buf[id].w = 255;
-			d_buf[id].x = 255;
-			d_buf[id].y = 255;
-			d_buf[id].z = 255;
+			d_buf[id].x = 191;
+			d_buf[id].y = 173;
+			d_buf[id].z = 134;
 		}
 		else
 		{
@@ -217,10 +218,11 @@ __global__ void GLKernel(uchar4 *d_buf,bool *CAGrid, int WorldH, int WorldW)
 }
 void displayfunc()
 {
-	int WorldW = 1024;
-	int WorldH = 728;
+	int WorldW = PanelW;
+	int WorldH = PanelH;
 	dim3 kernelwsize(WorldW, WorldH);
 	dim3 kernelbsize(1);
+	//LAUNCH OTHER KERNEL HERE
 	cudaGraphicsMapResources(1, &cudaPboResource, 0);
 	size_t num_bytes;
 	cudaError cudaStatus = cudaGraphicsResourceGetMappedPointer((void**)&GLout,
@@ -239,17 +241,17 @@ int main(int argc,char** argv)
 {
     
 
-	const int WorldW = 1024;
-	const int WorldH = 728;
+	const int WorldW = PanelW;
+	const int WorldH = PanelH;
 	const int WorldSize = WorldH * WorldW;
 	bool *CAGrid = (bool *)calloc(WorldSize , sizeof(bool));
 	bool *next_CAGrid = (bool *)calloc(WorldSize, sizeof(bool));
-	const int reqGens = 500;
+	const int reqGens = 1000;
 	
 	//IV
-	for (int i = 0; i < WorldSize; i++)
+	for (int i = (WorldH/2)*WorldW; i < WorldSize; i++)
 	{
-		CAGrid[i] = 1;//rand() % 2;
+		CAGrid[i] = rand() % 2;
 #ifdef CPUGRAPHICS
 		if (i % WorldH == 0)
 		{
@@ -316,6 +318,10 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
 	
 	initGLUT(argc, argv, WorldW, WorldH);
 	gluOrtho2D(0, WorldW, WorldH, 0); // VIewport
+	glutKeyboardFunc(keyboard);
+	glutSpecialFunc(handleSpecialKeypress);
+	glutPassiveMotionFunc(mouseMove);
+	glutMotionFunc(mouseDrag);
 	glutDisplayFunc(displayfunc);	//Display function set
 	OpenGLHelper(WorldW, WorldH);	//Texture and Buffer bind
     cudaStatus = cudaSetDevice(0);
@@ -360,33 +366,40 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
 			goto Error;
 		}
 		std::swap(d_CAGrid, d_next_CAGrid);
+		// cudaDeviceSynchronize waits for the kernel to finish, and returns
+		// any errors encountered during the launch.
+		cudaStatus = cudaDeviceSynchronize();
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching NextGenKernel!\n", cudaStatus);
+			goto Error;
+		}
+
+		//Display Life Kernel Resource Mapping
+		cudaGraphicsMapResources(1, &cudaPboResource, 0);
+		size_t num_bytes;
+		cudaStatus = cudaGraphicsResourceGetMappedPointer((void**)&GLout,
+			&num_bytes, cudaPboResource);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "Resource Mapping Error: %s\n", cudaGetErrorString(cudaStatus));
+			goto Error;
+		}
+		//cudaGLSetGLDevice(0);
+		GLKernel << < kernelwsize, kernelbsize >> > (GLout, d_CAGrid, WorldH, WorldW);
+		// cudaDeviceSynchronize waits for the kernel to finish, and returns
+		// any errors encountered during the launch.
+		cudaStatus = cudaDeviceSynchronize();
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching NextGenKernel!\n", cudaStatus);
+			goto Error;
+		}
+		cudaGraphicsUnmapResources(1, &cudaPboResource, 0);
+		drawTexture(WorldW, WorldH);
+		glutSwapBuffers();
+		
 
 		
 	}
-	// cudaDeviceSynchronize waits for the kernel to finish, and returns
-	// any errors encountered during the launch.
-	cudaStatus = cudaDeviceSynchronize();
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching NextGenKernel!\n", cudaStatus);
-		goto Error;
-	}
-
-	//Display Life Kernel Resource Mapping
-	cudaGraphicsMapResources(1, &cudaPboResource, 0);
-	size_t num_bytes;
-	cudaStatus = cudaGraphicsResourceGetMappedPointer((void**)&GLout,
-		&num_bytes, cudaPboResource);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "Resource Mapping Error: %s\n", cudaGetErrorString(cudaStatus));
-		goto Error;
-	}
-	//cudaGLSetGLDevice(0);
-	GLKernel << < kernelwsize, kernelbsize >> > (GLout, d_CAGrid, WorldH, WorldW);
-	cudaGraphicsUnmapResources(1, &cudaPboResource, 0);
-	drawTexture(WorldW, WorldH);
-	glutSwapBuffers();
 	glutMainLoop();
-   
 
     // Copy output vector from GPU buffer to host memory.
     cudaStatus = cudaMemcpy(CAGrid, d_CAGrid, size * sizeof(bool), cudaMemcpyDeviceToHost);
