@@ -4,8 +4,10 @@
 #include <stdlib.h>  
 #include <stdio.h>
 #include <algorithm>
+#include <time.h>
 #define PanelW 100
 #define PanelH 100
+//#define ZeroBoundary
 //
 
 //#include <GL\GL.h>
@@ -19,6 +21,7 @@
 #include "cuda_gl_interop.h"
 #include "Header.h"
 #define nCPUGRAPHICS
+#define HEURISTICS
 
 
 
@@ -116,7 +119,7 @@ bool initGLUT(int* argc, char** argv,unsigned int width,unsigned int height) {
 	glutInit(argc, argv);  // Create GL context.
 	glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);
 	glutInitWindowSize(width, height);
-	glutCreateWindow("Interesting Life Story");
+	glutCreateWindow("2Dimensional Cellular Automata (Conways Game of Life)");
 
 	glewInit();
 
@@ -130,6 +133,28 @@ bool initGLUT(int* argc, char** argv,unsigned int width,unsigned int height) {
 }
 void drawTexture(unsigned int width,unsigned int height) {
 	//glColor3f(1.0f, 1.0f, 1.0f);
+	//glMatrixMode(GL_PROJECTION);
+	//glLoadIdentity();
+
+	//glMatrixMode(GL_MODELVIEW);
+	//glLoadIdentity();
+	//glPushMatrix();
+	if (z1)
+	{
+		glScalef(2, 2, 1); // scale the matrix
+		z2 = false;
+	}
+	if (z2)
+	{
+		glScalef(0.5, 0.5, 1); // scale the matrix
+		z1 = false;
+	}
+	//glPopMatrix();
+	//glTranslatef(loc.x, loc.y, 0.0f);
+
+	//
+
+	//gluPerspective(1, (double)width / (double)height, 1.0, 300.0);
 	glBindTexture(GL_TEXTURE_2D, GLtexture);
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, GLbufferID);
 
@@ -150,28 +175,29 @@ void drawTexture(unsigned int width,unsigned int height) {
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
 	glBindTexture(GL_TEXTURE_2D, 0);
 }
-
-__global__ void NextGenKernel(bool *CAGrid, bool *NextCAGrid,int WorldH,int WorldW)
+void CPUNeighbours(bool *CAGrid, bool *NextCAGrid, int WorldH, int WorldW)
 {
-	int id = blockIdx.x * blockDim.x + threadIdx.x + (blockIdx.y*blockDim.y + threadIdx.y) * WorldH;
-	int neighbours = 0;
+	int neighbours;
 
-	unsigned int colup = id - ((blockIdx.y - 1)*blockDim.x);
-	unsigned int coldwn = id + ((blockIdx.y + 1)*blockDim.x);
-	if (id < (WorldH - 2) * (WorldW - 2) && id>=1)
+	for(int i =0; i < (WorldH) * (WorldW) ; i++)
 	{
-		// TODO WHY CODE 77 HERE - SOLVED ACCESS
-		//neighbours = NeighboursEval_Global(CAGrid, id, WorldH, WorldW);
-		// NEIGHBOUR ADDITION
+		int colup = i - WorldW;
+		int coldwn = i + WorldW;
+		int leftn = i - 1;
+		int rightn = i + 1;
+		if (colup < 0)colup = WorldW*(WorldH - 1) + i;
+		if (coldwn > WorldH*WorldW)coldwn = i - WorldW*(WorldH-1);
+		if (leftn < 0)leftn = i + WorldW;
+		if (rightn > WorldW)rightn = i - WorldW;
 
-			neighbours =  CAGrid[id + 1] +
-				CAGrid[id - 1] +
-				CAGrid[colup - 1] +
-				CAGrid[colup] +
-				CAGrid[colup + 1] +
-				CAGrid[coldwn - 1] +
-				CAGrid[coldwn] +
-				CAGrid[coldwn + 1];
+		neighbours = CAGrid[rightn] +
+			CAGrid[leftn] +
+			CAGrid[colup - 1] +
+			CAGrid[colup] +
+			CAGrid[colup + 1] +
+			CAGrid[coldwn - 1] +
+			CAGrid[coldwn] +
+			CAGrid[coldwn + 1];
 
 
 		// END OF NEIGHBOUR ADDITION
@@ -180,37 +206,303 @@ __global__ void NextGenKernel(bool *CAGrid, bool *NextCAGrid,int WorldH,int Worl
 
 		if (neighbours < 2)
 		{
-			NextCAGrid[id] = 0;
+			NextCAGrid[i] = 0;
 		}
 		else if (neighbours > 3)
 		{
-			NextCAGrid[id] = 0;
+			NextCAGrid[i] = 0;
 		}
 		else if (neighbours == 3)
 		{
-			NextCAGrid[id] = 1;
+			NextCAGrid[i] = 1;
 		}
 	}
 }
-__global__ void GLKernel(uchar4 *d_buf,bool *CAGrid, int WorldH, int WorldW)
+
+__global__ void NextGenKernel(bool *CAGrid, bool *NextCAGrid,int WorldH,int WorldW)
 {
-	int id = blockIdx.x * blockDim.x + threadIdx.x + (blockIdx.y*blockDim.y + threadIdx.y) * WorldH;
-	if (id < (WorldH - 2) * (WorldW - 2) && id >= 1)
+	//int id = blockIdx.x * blockDim.x + threadIdx.x + (blockIdx.y*blockDim.y + threadIdx.y)* WorldH;
+	int id = (blockIdx.y * gridDim.x + blockIdx.x);
+	int neighbours = 0;
+	unsigned int WorldS = WorldH*WorldW;
+	
+	unsigned int colup = ((blockIdx.y - 1) * gridDim.x + blockIdx.x);
+	unsigned int coldwn = ((blockIdx.y + 1) * gridDim.x +blockIdx.x);
+#ifndef ZeroBoundary
+	if (blockIdx.y == 0) colup = ((gridDim.y - 1) * gridDim.x + blockIdx.x);
+	if (blockIdx.y == gridDim.y-1) coldwn = blockIdx.x;
+#endif
+	//unsigned int colup = id - ((blockIdx.y - gridDim.x)*gridDim.x);
+	//unsigned int coldwn = id + ((blockIdx.y + gridDim.x)*gridDim.x);
+	//unsigned int colup = ((id - (id%WorldW)) + WorldS - WorldW) % WorldS;
+	//unsigned int coldwn = ((id - (id%WorldW)) + WorldW) % WorldS;
+	//unsigned int colup = id - ((blockIdx.y - 1)*blockDim.x);
+	//unsigned int coldwn = id + ((blockIdx.y + 1)*blockDim.x);
+	if (id < (WorldH) * (WorldW) && id>=0 )
 	{
-		if (CAGrid[id])
+		// TODO WHY CODE 77 HERE - SOLVED ACCESS
+		//neighbours = NeighboursEval_Global(CAGrid, id, WorldH, WorldW);
+		// NEIGHBOUR ADDITION
+		// TODO : colup and coldwn access violation? put zeros at boundaries
+		// DOES THE CELL NEED TO BE ALIVE ? 
+#ifdef ZeroBoundary
+
+
+
+
+		if (colup <= 0)
+		{ 
+			if (id - 1 <= 0)
+			{
+				neighbours = CAGrid[id + 1] +
+					CAGrid[coldwn] +
+					CAGrid[coldwn + 1];
+
+			}
+			else if (id + 1 > PanelW)
+			{
+				neighbours = CAGrid[id - 1] +
+					CAGrid[coldwn - 1] +
+					CAGrid[coldwn] +
+					CAGrid[coldwn + 1];
+			}
+			else
+			{
+				neighbours = CAGrid[id - 1] +
+					CAGrid[id + 1] +
+					CAGrid[coldwn - 1] +
+					CAGrid[coldwn] +
+					CAGrid[coldwn + 1];
+			}
+		}
+
+		else if (coldwn > PanelH*PanelW)
 		{
-			d_buf[id].w = 255;
-			d_buf[id].x = 191;
-			d_buf[id].y = 173;
-			d_buf[id].z = 134;
+			if (id - 1 <= 0)
+			{
+				neighbours = CAGrid[id + 1] +
+					CAGrid[colup - 1] +
+					CAGrid[colup] +
+					CAGrid[colup + 1];
+			}
+			else if (id + 1 > PanelW*PanelH)
+			{
+				neighbours = CAGrid[id - 1] +
+					CAGrid[colup - 1] +
+					CAGrid[colup] +
+					CAGrid[colup + 1];
+			}
+			else
+			{
+				neighbours = CAGrid[id - 1] +
+					CAGrid[id + 1] +
+					CAGrid[colup - 1] +
+					CAGrid[colup] +
+					CAGrid[colup + 1];
+			}
+		}
+
+		//else if (id - 1 <= 0)
+		//{
+		//	neighbours = CAGrid[id + 1] +
+		//		
+		//		CAGrid[colup] +
+		//		CAGrid[colup + 1] +
+		//		
+		//		CAGrid[coldwn] +
+		//		CAGrid[coldwn + 1];
+		//}
+		//else if (id + 1 > PanelW)
+		//{
+		//	neighbours = CAGrid[id - 1] +
+		//		CAGrid[colup - 1] +
+		//		CAGrid[colup] +
+
+		//		CAGrid[coldwn - 1] +
+		//		CAGrid[coldwn];
+		//		
+		//}
+		else
+		{
+
+			neighbours = CAGrid[id + 1] +
+				CAGrid[id - 1] +
+				CAGrid[colup - 1] +
+				CAGrid[colup] +
+				CAGrid[colup + 1] +
+				CAGrid[coldwn - 1] +
+				CAGrid[coldwn] +
+				CAGrid[coldwn + 1];
+
+		}
+		// END OF NEIGHBOUR ADDITION
+#else 
+		if (id == 0)
+		{
+			if (colup == gridDim.x * gridDim.y)
+			{
+				neighbours = CAGrid[id + 1] +
+					CAGrid[gridDim.x - 1] +
+					CAGrid[colup - 1] +
+					CAGrid[colup] +
+					CAGrid[colup -gridDim.x] +
+					CAGrid[coldwn - 1] +
+					CAGrid[coldwn] +
+					CAGrid[coldwn + 1];
+			}
+			else
+			{
+				neighbours = CAGrid[id + 1] +
+					CAGrid[gridDim.x - 1] +
+					CAGrid[colup - 1] +
+					CAGrid[colup] +
+					CAGrid[colup + 1] +
+					CAGrid[coldwn - 1] +
+					CAGrid[coldwn] +
+					CAGrid[coldwn + 1];
+			}
+		}
+		else if (id == gridDim.x*gridDim.y - 1)
+		{
+
+			neighbours = CAGrid[gridDim.x*gridDim.y -gridDim.x] +
+				CAGrid[id - 1] +
+				CAGrid[colup - 1] +
+				CAGrid[colup] +
+				CAGrid[colup + 1] +
+				CAGrid[coldwn - 1] +
+				CAGrid[coldwn] +
+				CAGrid[coldwn + 1];
+		}
+		else if (id == gridDim.x*gridDim.y - gridDim.x)
+		{
+			neighbours = CAGrid[id + 1] +
+				CAGrid[id - 1] +
+				CAGrid[colup - 1] +
+				CAGrid[colup] +
+				CAGrid[colup + 1] +
+				CAGrid[gridDim.x-1] +
+				CAGrid[coldwn] +
+				CAGrid[coldwn + 1];
+		}
+		else if (id == gridDim.x - 1)
+		{
+			neighbours = CAGrid[id + 1]; +
+				CAGrid[id - 1] +
+				CAGrid[colup - 1] +
+				CAGrid[colup] +
+				CAGrid[colup - gridDim.x + 1] +
+				CAGrid[coldwn - 1] +
+				CAGrid[coldwn] +
+				CAGrid[coldwn + 1];
+		}
+		else if (id == gridDim.x)
+		{
+			neighbours = CAGrid[id + 1] +
+				CAGrid[id - 1] +
+				CAGrid[gridDim.x - 1] +
+				CAGrid[colup] +
+				CAGrid[colup + 1] +
+				CAGrid[coldwn - 1] +
+				CAGrid[coldwn] +
+				CAGrid[coldwn + 1];
 		}
 		else
+		{
+			neighbours = CAGrid[id + 1] +
+				CAGrid[id - 1] +
+				CAGrid[colup - 1] +
+				CAGrid[colup] +
+				CAGrid[colup + 1] +
+				CAGrid[coldwn - 1] +
+				CAGrid[coldwn] +
+				CAGrid[coldwn + 1];
+		}
+#endif // !ZeroBoundary
+
+		if (CAGrid[id] == 1)
+		{
+			if (neighbours < 2)
+			{
+				NextCAGrid[id] = 0;
+			}
+			else if (neighbours > 3)
+			{
+				NextCAGrid[id] = 0;
+			}
+			else if (neighbours == 3 || neighbours == 2)
+			{
+				NextCAGrid[id] = 1;
+			}
+		}
+		else
+		{
+			if (neighbours == 3) NextCAGrid[id] = 1;
+		}
+	}
+}
+__global__ void GLKernel(uchar4 *d_buf,bool *CAGrid,bool *NextCAGrid, int WorldH, int WorldW)
+{
+	int id = (blockIdx.y * gridDim.x + blockIdx.x);
+	if (id < (WorldH ) * (WorldW ) && id >= 0)
+	{
+
+		if (CAGrid[id] == 1)
+		{
+			d_buf[id].w = 255;
+			d_buf[id].x = 255;
+			d_buf[id].y = 255;
+			d_buf[id].z = 255;
+		}
+		if (CAGrid[id] == 0)
 		{
 			d_buf[id].w = 255;
 			d_buf[id].x = 0;
 			d_buf[id].y = 0;
 			d_buf[id].z = 0;
 		}
+/*
+			d_buf[id].w = 255;
+			d_buf[id].x = 191;
+			d_buf[id].y = 173;
+			d_buf[id].z = 134;
+
+		if (CAGrid[id] == 1 && NextCAGrid[id] == 1) //GETTING OLDER
+		{
+			d_buf[id].w = 255;
+			d_buf[id].x -= 50;
+			d_buf[id].y -= 50;
+			d_buf[id].z -= 50;
+		}
+		if (CAGrid[id] == 1 && NextCAGrid[id] == 0) // NEW BORN
+		{
+			d_buf[id].w = 255;
+			d_buf[id].x += 64;
+			d_buf[id].y += 82;
+			d_buf[id].z += 121;
+		}
+		if (CAGrid[id] ==0)	//DEAD
+		{
+			d_buf[id].w = 255;
+			d_buf[id].x -= 191;
+			d_buf[id].y -= 173;
+			d_buf[id].z -= 134;
+		}
+		if (CAGrid[id] == 0 && NextCAGrid[id] == 1) // WAS ALIVE
+		{
+			d_buf[id].w = 255;
+			d_buf[id].x += 50;
+			d_buf[id].y += 50;
+			d_buf[id].z += 50;
+		}
+		if (CAGrid[id] == 0 && NextCAGrid[id] == 0) // NO ONE
+		{
+			d_buf[id].w = 255;
+			d_buf[id].x = 0;
+			d_buf[id].y = 0;
+			d_buf[id].z = 0;
+		}
+		*/
 	}
 }
 void displayfunc()
@@ -218,20 +510,36 @@ void displayfunc()
 	int WorldW = PanelW;
 	int WorldH = PanelH;
 	dim3 kernelwsize(WorldW, WorldH);
+	
 	dim3 kernelbsize(1);
+	cudaEvent_t start, stop; //CUDA timing var
+	float ms;
 	if (cont)
 	{
+#ifdef HEURISTICS
+		cudaEventCreate(&start);
+		cudaEventCreate(&stop);
+		cudaEventRecord(start, 0);
+#endif
 		NextGenKernel << <kernelwsize, kernelbsize >> > (d_CAGrid, d_next_CAGrid, WorldH, WorldW);
 		//NextDumbKernel << <kernelwsize, kernelbsize  >> > (d_CAGrid, d_next_CAGrid);//,d_WorldH,d_WorldW);
 		// Check for any errors launching the kernel
 
+#ifdef HEURISTICS
+		cudaThreadSynchronize();
+		cudaEventRecord(stop, 0);
+		cudaEventSynchronize(stop);
+		cudaEventElapsedTime(&ms, start, stop);
+		printf(" Elapsed GPU Time: %f ms \n", ms);
+#endif
+		cudaDeviceSynchronize();
 		std::swap(d_CAGrid, d_next_CAGrid);
 		// cudaDeviceSynchronize waits for the kernel to finish, and returns
 		// any errors encountered during the launch.
-		cudaDeviceSynchronize();
+		
 
 	}
-	//LAUNCH OTHER KERNEL HERE
+	
 	cudaGraphicsMapResources(1, &cudaPboResource, 0);
 	size_t num_bytes;
 	cudaError cudaStatus = cudaGraphicsResourceGetMappedPointer((void**)&GLout,
@@ -240,12 +548,13 @@ void displayfunc()
 		fprintf(stderr, "Resource Mapping Error: %s\n", cudaGetErrorString(cudaStatus));
 		}
 	//cudaGLSetGLDevice(0);
-	GLKernel << < kernelwsize, kernelbsize >> > (GLout, d_CAGrid, WorldH, WorldW);
+	GLKernel << < kernelwsize, kernelbsize >> > (GLout, d_CAGrid,d_next_CAGrid, WorldH, WorldW);
 	cudaGraphicsUnmapResources(1, &cudaPboResource, 0);
 	drawTexture(WorldW, WorldH);
 	glutSwapBuffers();
-	if (cont)glutPostRedisplay();
-	
+	//if (cont)glutPostRedisplay();
+	//glutPostRedisplay();
+
 }
 int main(int argc,char** argv)
 {
@@ -259,9 +568,16 @@ int main(int argc,char** argv)
 	const int reqGens = 1000;
 	
 	//IV
-	for (int i =0 /*(WorldH/2)*WorldW*/; i < WorldSize; i++)
+	int row = 0;
+	for (int i =WorldH*2 /*(WorldH/2)*WorldW*/; i < WorldSize - WorldH*2; i++) //changed boundaries from 0 to worldsize to shown
 	{
-		CAGrid[i] = rand() % 2;
+		//CAGrid[i] = rand() % 2;
+		row = i / WorldW;
+		if ((i > WorldW * row + WorldW / 5) && (i < WorldW*row + WorldW - WorldW / 5)) // our latest addition
+		{
+			if (row % 2 == 0)CAGrid[i] = 1;
+			else CAGrid[i] = 0;
+		}
 #ifdef CPUGRAPHICS
 		if (i % WorldH == 0)
 		{
@@ -270,7 +586,13 @@ int main(int argc,char** argv)
 		printf("%d", CAGrid[i]);
 #endif
 	}
-    
+#ifdef HEURISTICS
+	clock_t start = clock(), diff;
+	CPUNeighbours(CAGrid, next_CAGrid, WorldH, WorldW);
+	diff = clock() - start;
+	int msec = diff * 1000 / CLOCKS_PER_SEC;
+	printf("Time taken %d seconds %d milliseconds for CPU", msec / 1000, msec % 1000);
+#endif
 	cudaError_t cudaStatus= CudaCAHelper(CAGrid, next_CAGrid, WorldSize,WorldH,WorldW,reqGens,&argc,argv);
 
 
@@ -311,8 +633,7 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
     cudaError_t cudaStatus;
 	dim3 kernelwsize(WorldW, WorldH);
 	dim3 kernelbsize(1);
-	int *d_WorldH=0;
-	int *d_WorldW=0;
+
 	cudaDeviceProp myCUDA;
 	if (cudaGetDeviceProperties(&myCUDA, 0) == cudaSuccess)
 	{
@@ -324,14 +645,14 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
 	}
 	//int threadsPerBlock = myCUDA.maxThreadsPerBlock;
 	//int blocksPerGrid = (size + threadsPerBlock - 1) / threadsPerBlock;
-    // Choose which GPU to run on, change this on a multi-GPU system.
+    
 	
 	initGLUT(argc, argv, WorldW, WorldH);
 	gluOrtho2D(0, WorldW, WorldH, 0); // VIewport
 	glutKeyboardFunc(keyboard);
 	glutSpecialFunc(handleSpecialKeypress);
-	glutPassiveMotionFunc(mouseMove);
-	glutMotionFunc(mouseDrag);
+	//glutPassiveMotionFunc(mouseMove);
+	//glutMotionFunc(mouseDrag);
 	glutDisplayFunc(displayfunc);	//Display function set
 	OpenGLHelper(WorldW, WorldH);	//Texture and Buffer bind
     cudaStatus = cudaSetDevice(0);
