@@ -1,14 +1,21 @@
 #pragma once
- int2 loc = { 0, 0 };
+ int2 loc = { 0, 0};
  int2 mloc = { 0,0 };
+ int2 loc2 = { 0,0 };
  bool z1 = false; // mouse tracking mode
  bool z2 = false;
  bool cont = false;
  bool lifecontrol = false;
  bool evolutioncontrol = false;
  bool dragMode = false;
- float zoomFactor = 1.0;
+ bool resetlife = false;
+ bool fullresetlife = false;
+ bool givelife = 0;
+ float zoomFactor = 0.5;
  int mousebutton = 0;
+ int newpanelw = PanelW;
+ int	 newpanelh = PanelH;
+ bool timecompare = false;
 
 #define DELTA ((PanelW/10)) // pixel increment for arrow keys
 void keyboard(unsigned char key, int x, int y) {
@@ -26,8 +33,10 @@ void keyboard(unsigned char key, int x, int y) {
 	if (key == 32)cont = !cont;
 	if (key == 'l')lifecontrol = !lifecontrol;
 	if (key == 'e')evolutioncontrol = !evolutioncontrol;
-	
+	if (key == 't')timecompare = !timecompare;
 	if (key == 'd') dragMode = !dragMode;
+	if (key == 'r') resetlife = !resetlife;
+	if (key == 'f') fullresetlife = !fullresetlife;
 	glutPostRedisplay();
 
 }
@@ -42,10 +51,18 @@ void mouseCall(int button, int call, int x, int y) {
 		if (zoomFactor < 0) zoomFactor = 0;
 	}
 	if (button == 0 && call == GLUT_UP)mousebutton = 1;
-	else if (call == GLUT_DOWN)mousebutton = 1;
+	else if (button == 0 && call == GLUT_DOWN)mousebutton = 1;
 	else mousebutton = 0;
+	if (button == 2 && call == GLUT_DOWN)
+	{
+		givelife = 1;
+		loc2.x = x;
+		loc2.y = y;
+	}
+	else givelife = 0;
 	mloc.x = x;
 	mloc.y = y;
+	printf("Call xy: %d %d \n", x, y);
 	glutPostRedisplay();
 
 }
@@ -54,13 +71,17 @@ void mouseMove(int x, int y) {
 	int dx = x - mloc.x;
 	int dy = y - mloc.y;
 
-	if (mousebutton == 1)
+	if (mousebutton == 1 )
 	{
 		loc.x += dx;
 		loc.y -= dy;
 	}
+
 	mloc.x = x;
 	mloc.y = y;
+	printf("Move xy: %d %d \n", x, y);
+	printf("loc: %d %d \n", loc.x, loc.y);
+	printf("loc2: %d %d \n", loc2.x, loc2.y);
 	glutPostRedisplay();
 
 }
@@ -81,10 +102,14 @@ void handleSpecialKeypress(int key, int x, int y) {
 	glutPostRedisplay();
 
 }
-
-void printInstructions() {
-	printf("a: toggle mouse tracking mode\n");
-	printf("arrow keys: move ref location\n");
-	printf("esc: close graphics window\n");
-
+void reshape(int w, int h)
+{
+	glViewport(0.0, 0.0, (GLsizei)w, (GLsizei)h);
+	newpanelw = w;
+	newpanelh = h;
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	//glViewport((loc.x), (loc.y), GLsizei(w), GLsizei(h));
+	glutPostRedisplay();
+	//gluOrtho2D(-(GLdouble)w , (GLdouble)w, -(GLdouble)h, (GLdouble)h);
 }

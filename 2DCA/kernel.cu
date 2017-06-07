@@ -10,7 +10,9 @@
 
 #define PanelW 1000
 #define PanelH 1000
-//#define ZeroBoundary
+#define GENS 500		// number of generations to time 
+#define tcompstart true	 // starts timing CPU before using GPU for given GENS
+//#define ZeroBoundary		//if defined its only zero boundary at the 4 edges that defines the viewport
 //
 
 //#include <GL\GL.h>
@@ -36,7 +38,9 @@ uchar4 *d_bufferdata = nullptr;
 uchar4 *GLout = nullptr;
 bool *d_CAGrid = nullptr;
 bool *d_next_CAGrid = nullptr;
+bool *tempgrid = nullptr;
 int evolution_number = 0;
+float totalGPUtime = 0.0;
 
 cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size, unsigned int WorldH, unsigned int WorldW,unsigned int gen,int*argc,char**argv);
 /*
@@ -88,7 +92,8 @@ __global__ void NextDumbKernel(bool *CAGrid, bool *NextCAGrid)
 
 }
 */
-
+///	OpenGLHelper: Initialises texture buffers i
+/// Inputs: width and height of the texture
 void OpenGLHelper(unsigned int width,unsigned int height)
 {
 
@@ -119,6 +124,8 @@ void OpenGLHelper(unsigned int width,unsigned int height)
 
 
 }
+/// initGLUT: Initialises GLUT window
+/// Inputs: Main function arguments argc,argv then window width,height
 bool initGLUT(int* argc, char** argv,unsigned int width,unsigned int height) {
 	glutInit(argc, argv);  // Create GL context.
 	glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);
@@ -135,15 +142,21 @@ bool initGLUT(int* argc, char** argv,unsigned int width,unsigned int height) {
 	glutReportErrors();
 	return true;
 }
+/// drawTexture: Iteratively called draw function referenced to GLUT
+/// Inputs: Texture width,height
 void drawTexture(unsigned int width,unsigned int height) {
 	//glColor3f(1.0f, 1.0f, 1.0f);
 
-	glViewport(loc.x / 2, loc.y / 2, width, height);
+	gluOrtho2D(0, width*zoomFactor, 0, height*zoomFactor);
+	
 	//else glViewport(0, 0, width, height);
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	//glPushMatrix();
-
+	glViewport((loc.x ), (loc.y ), GLsizei(newpanelw*2*zoomFactor), GLsizei(newpanelh*2*zoomFactor));
+	
+	//gluPerspective(0, (width+loc.x) / (height+loc.y), GLdouble(loc.x/width), GLdouble(loc.y/height));
+	//glTranslatef(loc.x, loc.y, 0);
 	if (z1)
 	{
 		//gluOrtho2D(-(GLdouble)width * (GLdouble)zoomFactor, (GLdouble)width* (GLdouble)zoomFactor, -(GLdouble)height* (GLdouble)zoomFactor, (GLdouble)height* (GLdouble)zoomFactor);
@@ -157,14 +170,14 @@ void drawTexture(unsigned int width,unsigned int height) {
 		z2 = false;
 	}
 	glScalef(zoomFactor, zoomFactor, 1); // scale the matrix
-
+	//if(zoomFactor >= 1.8)glScalef(zoomFactor-0.8, zoomFactor-0.8, 1); // scale the matrix
 	//glPopMatrix();
 	//glMatrixMode(GL_MODELVIEW);
 	//glLoadIdentity();
 	
 
 	glBindTexture(GL_TEXTURE_2D, GLtexture);
-	glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, GLbufferID);
+	//glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, GLbufferID);
 
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
 
@@ -180,22 +193,75 @@ void drawTexture(unsigned int width,unsigned int height) {
 	glVertex2f(0.0f, float(height));
 	glEnd();
 	glDisable(GL_TEXTURE_2D);
-	glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+	//glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
 	glBindTexture(GL_TEXTURE_2D, 0);
 
 
 
 	//glPopMatrix();
+	//printf("%f", zoomFactor); //DEBUG PURPOSE
 	//glFlush();
 
 }
-void reshape(int w, int h)
+/// CPUGridInitLine: Initialises a line of cells every 2 rows
+/// Inputs: world width,height pointer to CPU memory of the grid which only fills given scale (real number >=1)
+void CPUGridInitLine(unsigned int WorldW, unsigned int WorldH, bool *CAGrid, unsigned int scale)
 {
-	glViewport(0.0, 0.0, (GLsizei)w, (GLsizei)h);
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	gluOrtho2D(-(GLdouble)w * zoomFactor, (GLdouble)w* zoomFactor, -(GLdouble)h* zoomFactor, (GLdouble)h* zoomFactor);
+	//IV
+	int row = 0;
+	unsigned int WorldSize = WorldH*WorldW;
+	for (int i = 1 /*(WorldH/2)*WorldW*/; i < WorldSize - WorldH * 2; i++) //changed boundaries from 0 to worldsize to shown
+	{
+		//CAGrid[i] = rand() % 2;
+		row = i / WorldW;
+		if ((i > WorldW * row + WorldW / scale) && (i < WorldW*row + WorldW - WorldW / scale) && (i > WorldW  * (WorldW / scale)) && i < WorldH*WorldW - (((WorldH / scale))*WorldW)) // Magic Code That Defines Boundaries 
+		{
+			if (row % 2 == 0)CAGrid[i] = 1;
+
+		}
+		else CAGrid[i] = 0;
+#ifdef CPUGRAPHICS
+		if (i % WorldH == 0)
+		{
+			printf("\n");
+		}
+		printf("%d", CAGrid[i]);
+#endif
+	}
 }
+/// CPUGridInitRand: Initialises a line of random cells every 2 rows
+/// Inputs: world width,height pointer to CPU memory of the grid which only fills given scale (real number >=1)
+void CPUGridInitRand(unsigned int WorldW, unsigned int WorldH, bool *CAGrid, unsigned int scale)
+{
+	//IV
+	int row = 0;
+	unsigned int WorldSize = WorldH*WorldW;
+	for (int i = 1 /*(WorldH/2)*WorldW*/; i < WorldSize - WorldH * 2; i++) //changed boundaries from 0 to worldsize to shown
+	{
+		//CAGrid[i] = rand() % 2;
+		row = i / WorldW;
+		if ((i > WorldW * row + WorldW / scale) && (i < WorldW*row + WorldW - WorldW / scale) && (i > WorldW  * (WorldW / scale)) && i < WorldH*WorldW - (((WorldH / scale))*WorldW)) // Magic Code That Defines Boundaries 
+		{
+			if (row % 2 == 0)CAGrid[i] = rand()%2;
+
+		}
+		else CAGrid[i] = 0;
+	}
+}
+/// CPUGridInitFullRand: Initialises the grid with random cells (uses rand)
+/// Inputs: world width,height pointer to CPU memory 
+void CPUGridInitFullRand(unsigned int WorldW, unsigned int WorldH, bool *CAGrid)
+{
+	//IV
+
+	unsigned int WorldSize = WorldH*WorldW;
+	for (int i = 0 /*(WorldH/2)*WorldW*/; i < WorldSize; i++) //changed boundaries from 0 to worldsize to shown
+	{
+		CAGrid[i] = rand() % 2;
+	}
+}
+/// CPUNeighbours: Calculates neighbours and perform evolution to the grid on CPU
+/// Inputs: pointer to CPU memory of the grid, pointer to CPU memory of the next grid,world width,height
 void CPUNeighbours(bool *CAGrid, bool *NextCAGrid, int WorldH, int WorldW)
 {
 	int neighbours;
@@ -224,28 +290,42 @@ void CPUNeighbours(bool *CAGrid, bool *NextCAGrid, int WorldH, int WorldW)
 		// END OF NEIGHBOUR ADDITION
 
 
-
-		if (neighbours < 2)
+		if (CAGrid[i] == 1)
 		{
-			NextCAGrid[i] = 0;
+			if (neighbours < 2)
+			{
+				NextCAGrid[i] = 0;
+			}
+			else if (neighbours > 3)
+			{
+				NextCAGrid[i] = 0;
+			}
+			else if (neighbours == 3 || neighbours == 2)
+			{
+				NextCAGrid[i] = 1;
+			}
 		}
-		else if (neighbours > 3)
+		else
 		{
-			NextCAGrid[i] = 0;
-		}
-		else if (neighbours == 3)
-		{
-			NextCAGrid[i] = 1;
+			if (neighbours == 3) NextCAGrid[i] = 1;
 		}
 	}
+	std::swap(CAGrid, NextCAGrid);
 }
-
+/// CPUInsertGPU: Inserts a cell for the given location on the CPU and passes to GPU
+/// Inputs: world width,height,window position of the chosen cell int2(x,y), pointer to CPU memory of the grid
+void CPUInsertGPU(unsigned int WorldW,unsigned int WorldH ,int2 i_loc, bool *CAGrid)
+{
+	int myid = float(float(i_loc.x/float((newpanelw/WorldW))) + (float(i_loc.y/(float((float(newpanelh)/float(WorldH))))*WorldW)));
+	if(myid <= WorldW*WorldH && myid>0)CAGrid[myid] = !CAGrid[myid];
+}
+/// NextGenKernel
 __global__ void NextGenKernel(bool *CAGrid, bool *NextCAGrid,int WorldH,int WorldW)
 {
 	//int id = blockIdx.x * blockDim.x + threadIdx.x + (blockIdx.y*blockDim.y + threadIdx.y)* WorldH;
 	int id = (blockIdx.y * gridDim.x + blockIdx.x); // GLOBAL CELL ID 
 	int neighbours = 0; 
-	unsigned int WorldS = WorldH*WorldW; // World Size
+	//unsigned int WorldS = WorldH*WorldW; // World Size
 	
 	unsigned int colup = ((blockIdx.y - 1) * gridDim.x + blockIdx.x); //Upper Row of the Cell	 (block)
 	unsigned int coldwn = ((blockIdx.y + 1) * gridDim.x +blockIdx.x); //Lower Row of the Cell (block)
@@ -261,10 +341,12 @@ __global__ void NextGenKernel(bool *CAGrid, bool *NextCAGrid,int WorldH,int Worl
 	//unsigned int coldwn = ((id - (id%WorldW)) + WorldW) % WorldS;
 	//unsigned int colup = id - ((blockIdx.y - 1)*blockDim.x);
 	//unsigned int coldwn = id + ((blockIdx.y + 1)*blockDim.x);
+	
+
 	if (id < (WorldH) * (WorldW) && id>=0 ) // Are we within the boundaries ? 
 	{
 		//neighbours = NeighboursEval_Global(CAGrid, id, WorldH, WorldW);
-
+		
 #ifdef ZeroBoundary // Uses this algorithm if zero boundary is defined
 
 
@@ -357,7 +439,7 @@ __global__ void NextGenKernel(bool *CAGrid, bool *NextCAGrid,int WorldH,int Worl
 		}
 		// END OF NEIGHBOUR ADDITION
 #else // Cyclic Algorithm
-		if (id == 0) // First block?
+		if (id == 0) // First block
 		{
 				neighbours = CAGrid[id + 1] +
 					CAGrid[gridDim.x - 1] +
@@ -444,7 +526,9 @@ __global__ void NextGenKernel(bool *CAGrid, bool *NextCAGrid,int WorldH,int Worl
 		}
 		else
 		{
+			NextCAGrid[id] = 0;
 			if (neighbours == 3) NextCAGrid[id] = 1;
+			
 		}
 	}
 }
@@ -476,38 +560,40 @@ __global__ void GLKernel(uchar4 *d_buf,bool *CAGrid,bool *NextCAGrid, int WorldH
 		else
 		{
 
-			d_buf[id].w = 255;
-			d_buf[id].x = 191;
-			d_buf[id].y = 173;
-			d_buf[id].z = 134;
+			//d_buf[id].w = 255;
+			////d_buf[id].x = 191;
+			////d_buf[id].y = 173;
+			//d_buf[id].x = 120;
+			//d_buf[id].y = 113;
+			//d_buf[id].z = 134;
 
 			if (CAGrid[id] == 1 && NextCAGrid[id] == 1) //GETTING OLDER
 			{
 				d_buf[id].w = 255;
-				d_buf[id].x -= 50;
-				d_buf[id].y -= 50;
-				d_buf[id].z -= 50;
+				d_buf[id].x = 22;
+				d_buf[id].y = 78;
+				d_buf[id].z = 146;
 			}
 			if (CAGrid[id] == 1 && NextCAGrid[id] == 0) // NEW BORN
 			{
 				d_buf[id].w = 255;
-				d_buf[id].x += 64;
-				d_buf[id].y += 82;
-				d_buf[id].z += 121;
+				d_buf[id].x = 255;
+				d_buf[id].y = 255;
+				d_buf[id].z = 255;
 			}
-			if (CAGrid[id] == 0)	//DEAD
-			{
-				d_buf[id].w = 255;
-				d_buf[id].x -= 191;
-				d_buf[id].y -= 173;
-				d_buf[id].z -= 134;
-			}
+			//if (CAGrid[id] == 0)	//DEAD
+			//{
+			//	d_buf[id].w = 255;
+			//	d_buf[id].x -= 191;
+			//	d_buf[id].y -= 173;
+			//	d_buf[id].z -= 134;
+			//}
 			if (CAGrid[id] == 0 && NextCAGrid[id] == 1) // WAS ALIVE
 			{
 				d_buf[id].w = 255;
-				d_buf[id].x += 50;
-				d_buf[id].y += 50;
-				d_buf[id].z += 50;
+				d_buf[id].x = 146;
+				d_buf[id].y = 22;
+				d_buf[id].z = 129;
 			}
 			if (CAGrid[id] == 0 && NextCAGrid[id] == 0) // NO ONE
 			{
@@ -529,48 +615,90 @@ void displayfunc()
 	
 	dim3 kernelbsize(1);
 	cudaEvent_t start, stop; //CUDA timing var
-	float ms;
-	glClear(GL_COLOR_BUFFER_BIT);
-	if (cont)
+	float ms = 0.0;
+	glClear(GL_COLOR_BUFFER_BIT); //Clear color buf
+	if (timecompare && evolution_number <= GENS)
 	{
+		cont = true;
+		evolutioncontrol = true;
+		
+	}
+	else if (timecompare && evolution_number >GENS)
+	{
+		cont = false;
+		evolutioncontrol = false;
+		printf("Total GPU Time %f ms \n", totalGPUtime);
+		timecompare = false;
+	}
+
+
 #ifdef HEURISTICS
 		cudaEventCreate(&start);
 		cudaEventCreate(&stop);
 		cudaEventRecord(start, 0);
 #endif
-		NextGenKernel << <kernelwsize, kernelbsize >> > (d_CAGrid, d_next_CAGrid, WorldH, WorldW);
+		if(cont)NextGenKernel << <kernelwsize, kernelbsize >> > (d_CAGrid, d_next_CAGrid, WorldH, WorldW); // NextGeneration Kernel adds neighbours and sets nextCA grid
 		//NextDumbKernel << <kernelwsize, kernelbsize  >> > (d_CAGrid, d_next_CAGrid);//,d_WorldH,d_WorldW);
 		// Check for any errors launching the kernel
 
 #ifdef HEURISTICS
-		cudaThreadSynchronize();
+		//cudaThreadSynchronize();
+		
 		cudaEventRecord(stop, 0);
 		cudaEventSynchronize(stop);
 		cudaEventElapsedTime(&ms, start, stop);
-		printf(" Elapsed GPU Time: %f ms \n", ms);
+		totalGPUtime += ms;
+		if(!timecompare)printf(" Elapsed GPU Time: %f ms \n", ms);
 #endif
 		cudaDeviceSynchronize();
-		std::swap(d_CAGrid, d_next_CAGrid);
+		if(cont)std::swap(d_CAGrid, d_next_CAGrid); //Swaps the values of both pointers
 		// cudaDeviceSynchronize waits for the kernel to finish, and returns
 		// any errors encountered during the launch.
-		evolution_number += 1;
-		printf("Evolution Stage %d", evolution_number);
+		if (resetlife || fullresetlife)
+		{
+			bool *tempgrid = (bool *)calloc(WorldH*WorldW, sizeof(bool));
+			if(resetlife)CPUGridInitRand(WorldW, WorldH, tempgrid, 5);
+			if(fullresetlife)CPUGridInitFullRand(WorldW, WorldH, tempgrid);
+			cudaMemset(d_CAGrid, 0, sizeof(d_CAGrid)); // reset the current grid
+			if (cudaMemcpy(d_CAGrid, tempgrid, WorldH*WorldW * sizeof(bool), cudaMemcpyHostToDevice) != cudaSuccess) {
+				fprintf(stderr, "cudaMemcpy failed!");
+			}
+			cudaMemset(d_next_CAGrid, 0, sizeof(d_next_CAGrid)); // reset the next grid
+			free(tempgrid);
+			resetlife = false;
+			fullresetlife = false;
+		}
+		if (givelife)
+		{
+			bool *tempgrid = (bool *)calloc(WorldH*WorldW, sizeof(bool));
+			if (cudaMemcpy(tempgrid, d_CAGrid, WorldH*WorldW * sizeof(bool), cudaMemcpyDeviceToHost) != cudaSuccess) {
+				fprintf(stderr, "cudaMemcpy at display function for Device to Host failed!");
+			}
 
-	}
+			CPUInsertGPU(WorldW,WorldH, loc2, tempgrid);
+
+			if (cudaMemcpy(d_CAGrid, tempgrid, WorldH*WorldW * sizeof(bool), cudaMemcpyHostToDevice) != cudaSuccess) {
+				fprintf(stderr, "cudaMemcpy at display function for Host to Device failed!");
+			}
+			givelife = false;
+		}
+		if(cont)evolution_number += 1;
+		if(!timecompare)printf("Evolution Stage %d", evolution_number);
+
+	
 
 
-
-	cudaGraphicsMapResources(1, &cudaPboResource, 0);
+	cudaGraphicsMapResources(1, &cudaPboResource, 0); // map memory
 	size_t num_bytes;
-	cudaError cudaStatus = cudaGraphicsResourceGetMappedPointer((void**)&GLout,
+	cudaError cudaStatus = cudaGraphicsResourceGetMappedPointer((void**)&GLout, // map to pointed texture
 		&num_bytes, cudaPboResource);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "Resource Mapping Error: %s\n", cudaGetErrorString(cudaStatus));
 		}
 	//cudaGLSetGLDevice(0);
-	GLKernel << < kernelwsize, kernelbsize >> > (GLout, d_CAGrid,d_next_CAGrid, WorldH, WorldW,lifecontrol);
-	cudaGraphicsUnmapResources(1, &cudaPboResource, 0);
-	drawTexture(WorldW, WorldH);
+	GLKernel << < kernelwsize, kernelbsize >> > (GLout, d_CAGrid,d_next_CAGrid, WorldH, WorldW,lifecontrol); //Fills GL texture with CA data
+	cudaGraphicsUnmapResources(1, &cudaPboResource, 0); //unmap resource memory
+	drawTexture(WorldW, WorldH); // call texture draw function
 // TODO: Integrate string printing with Texture 
 	/*
 	std::string inf;
@@ -588,8 +716,9 @@ void displayfunc()
 	glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, allinf[i]);
 	}
 	*/
-	glutSwapBuffers();
-	if (evolutioncontrol)glutPostRedisplay();
+	glutSwapBuffers(); //swap back buffer with front buffer
+	//cudaMemset(d_next_CAGrid, 0, sizeof(d_next_CAGrid)); // reset the next grid
+	if (evolutioncontrol)glutPostRedisplay(); //for consecutive frame update hence evolution if set
 	//glutPostRedisplay();
 
 }
@@ -600,12 +729,14 @@ int main(int argc,char** argv)
 	const int WorldW = PanelW;
 	const int WorldH = PanelH;
 	const int WorldSize = WorldH * WorldW;
-	bool *CAGrid = (bool *)calloc(WorldSize , sizeof(bool));
+	bool *CAGrid = (bool *)calloc(WorldSize , sizeof(bool)); // Allocate world 
 	bool *next_CAGrid = (bool *)calloc(WorldSize, sizeof(bool));
-	const int reqGens = 1000;
+	
+	const int reqGens = GENS;
 
 	printf("Starting GLUT main loop...\n");
-	printf("Press [r] to reset the view to the original \n")  ;
+	printf("Press [r] to reset the view to a randomized board \n")  ;
+	printf("Press [f] to reset the view to a fully randomized board \n");
 	printf("Press [ESC] to exit \n" ) ;
 	printf( "Press the [+] key to zoom in \n")  ;
 	printf( "Press the [-] key to zoom out \n")  ;
@@ -613,40 +744,27 @@ int main(int argc,char** argv)
 	printf( "Press the [down arrow] to move down \n")  ;
 	printf( "Press the [left arrow] to move left \n")  ;
 	printf( "Press the [right arrow] to move right \n")  ;
-	printf( "Press the [l] key to render with colours \n")  ;
+	printf( "Press the [l] key to render without colours \n")  ;
 	printf( "Press the [space] bar to stop evolution \n")  ;
 	printf("Press the [e] key to evolve consecutively \n");
+	printf("Press the [d] key to activate mouse drag + mouse zoom \n");
+	printf("Press the [t] key to activate timing mode for GPU for %d generations \n",GENS);
 
 
-	//IV
-	int row = 0;
-	for (int i =1 /*(WorldH/2)*WorldW*/; i < WorldSize - WorldH*2; i++) //changed boundaries from 0 to worldsize to shown
-	{
-		//CAGrid[i] = rand() % 2;
-		row = i / WorldW;
-		if ((i > WorldW * row + WorldW / 5) && (i < WorldW*row + WorldW - WorldW / 5) && (i > WorldW  * (WorldW / 5)) && i < WorldH*WorldW  - (((WorldH / 5))*WorldW)) // Magic Code That Defines Boundaries 
-		{
-			if (row % 2 == 0)CAGrid[i] = 1;
-			
-		}
-		else CAGrid[i] = 0;
-#ifdef CPUGRAPHICS
-		if (i % WorldH == 0)
-		{
-			printf("\n");
-		}
-		printf("%d", CAGrid[i]);
-#endif
-	}
+/////
+	CPUGridInitLine(WorldW, WorldH, CAGrid, 5);
+
+	//////
 #ifdef HEURISTICS
 	clock_t start = clock(), diff;
-	CPUNeighbours(CAGrid, next_CAGrid, WorldH, WorldW);
+	if(tcompstart)for (int k = 0;k < reqGens ; k++)CPUNeighbours(CAGrid, next_CAGrid, WorldH, WorldW);
+	else CPUNeighbours(CAGrid, next_CAGrid, WorldH, WorldW);
 	diff = clock() - start;
 	int msec = diff * 1000 / CLOCKS_PER_SEC;
 	printf("Time taken %d seconds %d milliseconds for CPU", msec / 1000, msec % 1000);
 #endif
 	cudaError_t cudaStatus= CudaCAHelper(CAGrid, next_CAGrid, WorldSize,WorldH,WorldW,reqGens,&argc,argv);
-
+	if(tcompstart)CPUGridInitLine(WorldW, WorldH, CAGrid, 5);
 
 	//glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_CONTINUE_EXECUTION);
 	
@@ -718,7 +836,7 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
 	/*bool *d_CAGrid; */cudaStatus = cudaMalloc((void**)&d_CAGrid, sizeof(bool) *size); // ALLOCATE THE SAME MEMORY SIZE AS CPU FOR GPU 
 
     if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed with Grid!",cudaStatus);
+        fprintf(stderr, "cudaMalloc failed with Grid! %s",cudaStatus);
         goto Error;
     }
 
@@ -795,6 +913,9 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
         goto Error;
     
 	}
+	free(CAGrid);
+	free(tempgrid);
+	free(NextCAGrid);
 	cudaFree(d_CAGrid);
 	cudaFree(d_next_CAGrid);
 	cudaGraphicsUnregisterResource(cudaPboResource);
