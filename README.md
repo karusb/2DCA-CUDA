@@ -1,4 +1,4 @@
-# 2D Cellular Automata Based on Conway's Game of Life
+# 2D Cellular Automata Based on Conway's Game of Life Visualised Using CUDA & OpenGL Interoperability
 - Colour Enhancements
 - Zoom in,zoom out options
 - Move around the world using mouse
