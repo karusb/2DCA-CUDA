@@ -1,4 +1,6 @@
 #pragma once
+
+// BEGIN GLOBAL VAR
  int2 loc = { 0, 0};
  int2 mloc = { 0,0 };
  int2 loc2 = { 0,0 };
@@ -14,10 +16,12 @@
  float zoomFactor = 0.5;
  int mousebutton = 0;
  int newpanelw = PanelW;
- int	 newpanelh = PanelH;
+ int newpanelh = PanelH;
  bool timecompare = false;
-
+ //
 #define DELTA ((PanelW/10)) // pixel increment for arrow keys
+
+ //keyboard press handler sets global vars that interact with displayfunc
 void keyboard(unsigned char key, int x, int y) {
 	if (key == '+') {
 		z1 = !z1; 
@@ -40,6 +44,7 @@ void keyboard(unsigned char key, int x, int y) {
 	glutPostRedisplay();
 
 }
+// Mouse click handler that sets global vars for other interaction with displayfunc
 void mouseCall(int button, int call, int x, int y) {
 	if (!dragMode) return;
 
@@ -66,7 +71,8 @@ void mouseCall(int button, int call, int x, int y) {
 	glutPostRedisplay();
 
 }
-void mouseMove(int x, int y) {
+// Mouse Move handler with reference to mouse click handler
+void mouseMove( int x, int y) {
 	if (!dragMode) return;
 	int dx = x - mloc.x;
 	int dy = y - mloc.y;
@@ -85,7 +91,7 @@ void mouseMove(int x, int y) {
 	glutPostRedisplay();
 
 }
-
+// non used location mouse drag location handler
 void mouseDrag(int x, int y) {
 	if (!dragMode) return;
 	loc.x = x;
@@ -93,20 +99,20 @@ void mouseDrag(int x, int y) {
 	glutPostRedisplay();
 
 }
-
+// Moving texture on the screen keyboard func
 void handleSpecialKeypress(int key, int x, int y) {
-	if (key == GLUT_KEY_LEFT)  loc.x -= DELTA;
-	if (key == GLUT_KEY_RIGHT) loc.x += DELTA;
-	if (key == GLUT_KEY_UP)    loc.y += DELTA;
-	if (key == GLUT_KEY_DOWN)  loc.y -= DELTA;
+	if (key == GLUT_KEY_LEFT)  loc.x += DELTA;
+	if (key == GLUT_KEY_RIGHT) loc.x -= DELTA;
+	if (key == GLUT_KEY_UP)    loc.y -= DELTA;
+	if (key == GLUT_KEY_DOWN)  loc.y += DELTA;
 	glutPostRedisplay();
 
 }
 void reshape(int w, int h)
 {
 	glViewport(0.0, 0.0, (GLsizei)w, (GLsizei)h);
-	newpanelw = w;
-	newpanelh = h;
+	newpanelw = w; // set the global panelw
+	newpanelh = h; // set the global panelh
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	//glViewport((loc.x), (loc.y), GLsizei(w), GLsizei(h));

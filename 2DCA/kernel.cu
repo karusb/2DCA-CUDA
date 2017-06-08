@@ -7,29 +7,27 @@
 #include <time.h>
 #include <string>
 #include <sstream>
+#include <GL\glew.h>
+#include <GL\freeglut.h>
+#include "cuda_gl_interop.h"
 
-#define PanelW 1000
-#define PanelH 1000
+
+// MANUALLY EDIT BELOW 
+#define PanelW 100		// Texture Width
+#define PanelH 100		// Texture Height
 #define GENS 500		// number of generations to time 
 #define tcompstart true	 // starts timing CPU before using GPU for given GENS
 //#define ZeroBoundary		//if defined its only zero boundary at the 4 edges that defines the viewport
 //
 
-//#include <GL\GL.h>
-//#include <GL\GLU.h>
-//#include <GL\glut.h>
-//#include <cudaGL.h>
-#include <GL\glew.h>
-//#include <GL\glxew.h>
-//#include <GL\wglew.h>
-#include <GL\freeglut.h>
-#include "cuda_gl_interop.h"
+
+
 #include "Header.h"
 #define nCPUGRAPHICS
 #define HEURISTICS
 
 
-
+//BEGIN GLOBAL VAR
 cudaGraphicsResource* cudaPboResource = nullptr;
 GLuint GLtexture;
 GLuint GLbufferID;
@@ -41,7 +39,7 @@ bool *d_next_CAGrid = nullptr;
 bool *tempgrid = nullptr;
 int evolution_number = 0;
 float totalGPUtime = 0.0;
-
+//
 cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size, unsigned int WorldH, unsigned int WorldW,unsigned int gen,int*argc,char**argv);
 /*
 __device__ int NeighboursEval(bool *CAGrid, int x, int y,int WorldH,int WorldW)
@@ -147,13 +145,13 @@ bool initGLUT(int* argc, char** argv,unsigned int width,unsigned int height) {
 void drawTexture(unsigned int width,unsigned int height) {
 	//glColor3f(1.0f, 1.0f, 1.0f);
 
-	gluOrtho2D(0, width*zoomFactor, 0, height*zoomFactor);
+	gluOrtho2D(0, width*(zoomFactor+1), 0, height*(zoomFactor+1));
 	
 	//else glViewport(0, 0, width, height);
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	//glPushMatrix();
-	glViewport((loc.x ), (loc.y ), GLsizei(newpanelw*2*zoomFactor), GLsizei(newpanelh*2*zoomFactor));
+	glViewport((loc.x ), (loc.y ), GLsizei(newpanelw*2*(zoomFactor)), GLsizei(newpanelh*2*(zoomFactor)));
 	
 	//gluPerspective(0, (width+loc.x) / (height+loc.y), GLdouble(loc.x/width), GLdouble(loc.y/height));
 	//glTranslatef(loc.x, loc.y, 0);
@@ -191,6 +189,37 @@ void drawTexture(unsigned int width,unsigned int height) {
 	glVertex2f(float(width), float(height));
 	glTexCoord2f(0.0f, 1.0f);
 	glVertex2f(0.0f, float(height));
+
+
+	/////// BELOW CODE DRAWS STRING BUT DOESNT WORK
+	// TODO: Integrate string printing with Texture 
+	//	glColor3f(1.0f, 1.0f, 1.0f);
+	//	glMatrixMode(GL_PROJECTION);
+	//	glPushMatrix();
+	//	glLoadIdentity();
+	//	gluOrtho2D(0, newpanelw, 0, newpanelh);
+	//
+	//	glMatrixMode(GL_MODELVIEW);
+	//	glPushMatrix();
+	//	glLoadIdentity();
+	//	std::string inf;
+	//	std::stringstream strstream;
+	//#ifndef ZeroBoundary
+	//	inf = "Cyclic World";
+	//#else
+	//	inf = "Zero Boundary"
+	//#endif // !ZeroBoundary
+	//		strstream << inf << " Evolution Stage: " << evolution_number;
+	//	std::string allinf(strstream.str());
+	//	glRasterPos2f(0, 0);
+	//	//glWindowPos2i(603, 304);
+	//	for (int i = 0; i < allinf.size(); ++i) {
+	//		glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, allinf[i]);
+	//	}
+	//	glPopMatrix();
+	//
+	//	glMatrixMode(GL_PROJECTION);
+	//	glPopMatrix();
 	glEnd();
 	glDisable(GL_TEXTURE_2D);
 	//glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
@@ -316,10 +345,11 @@ void CPUNeighbours(bool *CAGrid, bool *NextCAGrid, int WorldH, int WorldW)
 /// Inputs: world width,height,window position of the chosen cell int2(x,y), pointer to CPU memory of the grid
 void CPUInsertGPU(unsigned int WorldW,unsigned int WorldH ,int2 i_loc, bool *CAGrid)
 {
-	int myid = float(float(i_loc.x/float((newpanelw/WorldW))) + (float(i_loc.y/(float((float(newpanelh)/float(WorldH))))*WorldW)));
+	int myid = (i_loc.x/float(newpanelw/WorldW)) + (i_loc.y/float(newpanelh/WorldH))*WorldW;
 	if(myid <= WorldW*WorldH && myid>0)CAGrid[myid] = !CAGrid[myid];
 }
-/// NextGenKernel
+/// CUDA : NextGenKernel : Calculates the neighbours of each cell and puts the new state of the cell in NextCAGrid
+/// Inputs : Pointer to the current CAGrid, pointer to the nextCAGrid, world width,height.
 __global__ void NextGenKernel(bool *CAGrid, bool *NextCAGrid,int WorldH,int WorldW)
 {
 	//int id = blockIdx.x * blockDim.x + threadIdx.x + (blockIdx.y*blockDim.y + threadIdx.y)* WorldH;
@@ -532,6 +562,8 @@ __global__ void NextGenKernel(bool *CAGrid, bool *NextCAGrid,int WorldH,int Worl
 		}
 	}
 }
+/// CUDA : GLKernel : Sets the colour of the texture buffer given the correct inputs
+/// Inputs: Pointer to the mapped texture , pointer to the current CAGrid, pointer to the next CAGrid, world width,height,2 state or 4 state choice
 __global__ void GLKernel(uchar4 *d_buf,bool *CAGrid,bool *NextCAGrid, int WorldH, int WorldW,bool d_lifecontrol)
 {
 	int id = (blockIdx.y * gridDim.x + blockIdx.x);
@@ -607,6 +639,8 @@ __global__ void GLKernel(uchar4 *d_buf,bool *CAGrid,bool *NextCAGrid, int WorldH
 	}
 	
 }
+/// GLUT : displayfunc : Called everytime when  screen update is called through GLUT, runs majority of the code as well as the CUDA kernels,
+/// All of the global control variables are checked here
 void displayfunc()
 {
 	int WorldW = PanelW;
@@ -688,6 +722,7 @@ void displayfunc()
 	
 
 
+
 	cudaGraphicsMapResources(1, &cudaPboResource, 0); // map memory
 	size_t num_bytes;
 	cudaError cudaStatus = cudaGraphicsResourceGetMappedPointer((void**)&GLout, // map to pointed texture
@@ -697,29 +732,20 @@ void displayfunc()
 		}
 	//cudaGLSetGLDevice(0);
 	GLKernel << < kernelwsize, kernelbsize >> > (GLout, d_CAGrid,d_next_CAGrid, WorldH, WorldW,lifecontrol); //Fills GL texture with CA data
+																											 
 	cudaGraphicsUnmapResources(1, &cudaPboResource, 0); //unmap resource memory
 	drawTexture(WorldW, WorldH); // call texture draw function
-// TODO: Integrate string printing with Texture 
-	/*
-	std::string inf;
-	std::stringstream strstream;
-	#ifndef ZeroBoundary
-	inf = "Cyclic World";
-	#else
-	inf = "Zero Boundary"
-	#endif // !ZeroBoundary
-	strstream << inf << " Evolution Stage: " << evolution_number;
-	std::string allinf(strstream.str());
-	glColor3f(1.0f, 1.0f, 1.0f);
-	glRasterPos2f(-0.5f, 0.5f);
-	for (int i = 0; i < allinf.size(); ++i) {
-	glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, allinf[i]);
-	}
-	*/
+
+
+
+
 	glutSwapBuffers(); //swap back buffer with front buffer
+
 	//cudaMemset(d_next_CAGrid, 0, sizeof(d_next_CAGrid)); // reset the next grid
+	glFlush();
 	if (evolutioncontrol)glutPostRedisplay(); //for consecutive frame update hence evolution if set
 	//glutPostRedisplay();
+
 
 }
 int main(int argc,char** argv)
@@ -733,7 +759,7 @@ int main(int argc,char** argv)
 	bool *next_CAGrid = (bool *)calloc(WorldSize, sizeof(bool));
 	
 	const int reqGens = GENS;
-
+	// BEGIN INFO
 	printf("Starting GLUT main loop...\n");
 	printf("Press [r] to reset the view to a randomized board \n")  ;
 	printf("Press [f] to reset the view to a fully randomized board \n");
@@ -744,17 +770,21 @@ int main(int argc,char** argv)
 	printf( "Press the [down arrow] to move down \n")  ;
 	printf( "Press the [left arrow] to move left \n")  ;
 	printf( "Press the [right arrow] to move right \n")  ;
-	printf( "Press the [l] key to render without colours \n")  ;
+	printf( "Press the [l] key to switch between colour and colourless \n")  ;
 	printf( "Press the [space] bar to stop evolution \n")  ;
 	printf("Press the [e] key to evolve consecutively \n");
-	printf("Press the [d] key to activate mouse drag + mouse zoom \n");
+	printf("Press the [d] key to activate mouse functions \n");
+	printf("MouseWheelUp = zoom+ - MouseWheelDown = zoom- \n");
+	printf("MouseLeftClick and Drag to change viewing position \n");
+	printf("MouseRightClick = Spawn or Kill a cell at the mouse location \n");
 	printf("Press the [t] key to activate timing mode for GPU for %d generations \n",GENS);
 
 
-/////
+///// BEGIN GRID INIT
 	CPUGridInitLine(WorldW, WorldH, CAGrid, 5);
 
-	//////
+//////
+// BEGIN CPU NEIGHBOUR CALCULATION
 #ifdef HEURISTICS
 	clock_t start = clock(), diff;
 	if(tcompstart)for (int k = 0;k < reqGens ; k++)CPUNeighbours(CAGrid, next_CAGrid, WorldH, WorldW);
@@ -762,9 +792,12 @@ int main(int argc,char** argv)
 	diff = clock() - start;
 	int msec = diff * 1000 / CLOCKS_PER_SEC;
 	printf("Time taken %d seconds %d milliseconds for CPU", msec / 1000, msec % 1000);
+	if (tcompstart)CPUGridInitLine(WorldW, WorldH, CAGrid, 5);
 #endif
+	
+	// CUDA&GLUT Initialise Function
 	cudaError_t cudaStatus= CudaCAHelper(CAGrid, next_CAGrid, WorldSize,WorldH,WorldW,reqGens,&argc,argv);
-	if(tcompstart)CPUGridInitLine(WorldW, WorldH, CAGrid, 5);
+	
 
 	//glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_CONTINUE_EXECUTION);
 	
@@ -797,7 +830,8 @@ int main(int argc,char** argv)
     return 0;
 }
 
-// Helper function for using CUDA to do its magic 
+/// CudaCAHelper : Allocates Memory for CAGrid and NextCAGrid on GPU for given size
+/// Inputs : Pointer to current CAGrid, pointer to NextCAGrid, world size (w*h), world height,width, required generations
 cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsigned int WorldH,unsigned int WorldW,unsigned int gen,int*argc,char**argv)
 {
     cudaError_t cudaStatus;
@@ -816,14 +850,46 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
 	//int threadsPerBlock = myCUDA.maxThreadsPerBlock;
 	//int blocksPerGrid = (size + threadsPerBlock - 1) / threadsPerBlock;
     
-	
+	// Allocate GPU buffers for three vectors (two input, one output)    .
+	/*bool *d_CAGrid; */cudaStatus = cudaMalloc((void**)&d_CAGrid, sizeof(bool) *size); // ALLOCATE THE SAME MEMORY SIZE AS CPU FOR GPU 
+
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc failed with Grid! %d", cudaStatus);
+		goto Error;
+	}
+
+	/*bool *d_next_CAGrid; */cudaStatus = cudaMalloc((void**)&d_next_CAGrid, sizeof(bool) *size); // ALLOCATE THE SAME MEMORY SIZE AS CPU FOR GPU
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc failed with nextGrid!");
+		goto Error;
+	}
+
+	/// START GPU TIMING 
+	if (tcompstart)
+	{
+		cudaEvent_t startgpu, stopgpu; //CUDA timing var
+		float mstwo = 0.0;
+		cudaEventCreate(&startgpu);
+		cudaEventCreate(&stopgpu);
+		cudaEventRecord(startgpu, 0);
+		for (int i = 0; i < GENS; i++)NextGenKernel << <kernelwsize, kernelbsize >> > (d_CAGrid, d_next_CAGrid, WorldH, WorldW); // NextGeneration Kernel adds neighbours and sets nextCA grid
+		cudaEventRecord(stopgpu, 0);
+		cudaEventSynchronize(stopgpu);
+		cudaEventElapsedTime(&mstwo, startgpu, stopgpu);
+		printf(" Elapsed GPU Time: %f ms \n", mstwo);
+		cudaMemset(d_CAGrid, 0, sizeof(d_CAGrid));
+		cudaMemset(d_next_CAGrid, 0, sizeof(d_next_CAGrid));
+		CPUGridInitLine(WorldW, WorldH, CAGrid, 5);
+	}
+	///
+
 	initGLUT(argc, argv, WorldW, WorldH);
 	gluOrtho2D(0, WorldW, WorldH, 0); // VIewport
-	glutKeyboardFunc(keyboard);
-	glutSpecialFunc(handleSpecialKeypress);
-	glutMouseFunc(mouseCall);
-	glutMotionFunc(mouseMove);
-	glutReshapeFunc(reshape);
+	glutKeyboardFunc(keyboard);		//keyboard press func
+	glutSpecialFunc(handleSpecialKeypress); //arrow keys
+	glutMouseFunc(mouseCall);		// mouse clicks
+	glutMotionFunc(mouseMove);		// mouse motion
+	glutReshapeFunc(reshape);		// windows reshape function
 	glutDisplayFunc(displayfunc);	//Display function set
 	OpenGLHelper(WorldW, WorldH);	//Texture and Buffer bind
     cudaStatus = cudaSetDevice(0);
@@ -832,19 +898,7 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
         goto Error;
     }
 
-    // Allocate GPU buffers for three vectors (two input, one output)    .
-	/*bool *d_CAGrid; */cudaStatus = cudaMalloc((void**)&d_CAGrid, sizeof(bool) *size); // ALLOCATE THE SAME MEMORY SIZE AS CPU FOR GPU 
 
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed with Grid! %s",cudaStatus);
-        goto Error;
-    }
-
-	/*bool *d_next_CAGrid; */cudaStatus = cudaMalloc((void**)&d_next_CAGrid, sizeof(bool) *size); // ALLOCATE THE SAME MEMORY SIZE AS CPU FOR GPU
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed with nextGrid!");
-        goto Error;
-    }
 
 
     // Copy input vectors from host memory to GPU buffers.
@@ -856,56 +910,10 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
         goto Error;
     }
 
-    // Launch a kernel on the GPU with one thread for each element.
-	//REPLACED BY GLUT DISPLAY FUNC
-	/*
-	for (int i = 0; i < gen; i++)
-	{
-		NextGenKernel << <kernelwsize, kernelbsize >> > (d_CAGrid, d_next_CAGrid, WorldH, WorldW);
-		//NextDumbKernel << <kernelwsize, kernelbsize  >> > (d_CAGrid, d_next_CAGrid);//,d_WorldH,d_WorldW);
-		// Check for any errors launching the kernel
-		cudaStatus = cudaGetLastError();
-		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "NextGenKernel Start Error: %s\n", cudaGetErrorString(cudaStatus));
-			goto Error;
-		}
-		std::swap(d_CAGrid, d_next_CAGrid);
-		// cudaDeviceSynchronize waits for the kernel to finish, and returns
-		// any errors encountered during the launch.
-		cudaStatus = cudaDeviceSynchronize();
-		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching NextGenKernel!\n", cudaStatus);
-			goto Error;
-		}
 
-		//Display Life Kernel Resource Mapping
-		cudaGraphicsMapResources(1, &cudaPboResource, 0);
-		size_t num_bytes;
-		cudaStatus = cudaGraphicsResourceGetMappedPointer((void**)&GLout,
-			&num_bytes, cudaPboResource);
-		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "Resource Mapping Error: %s\n", cudaGetErrorString(cudaStatus));
-			goto Error;
-		}
-		//cudaGLSetGLDevice(0);
-		GLKernel << < kernelwsize, kernelbsize >> > (GLout, d_CAGrid, WorldH, WorldW);
-		// cudaDeviceSynchronize waits for the kernel to finish, and returns
-		// any errors encountered during the launch.
-		cudaStatus = cudaDeviceSynchronize();
-		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching NextGenKernel!\n", cudaStatus);
-			goto Error;
-		}
-		cudaGraphicsUnmapResources(1, &cudaPboResource, 0);
-		drawTexture(WorldW, WorldH);
-		glutSwapBuffers();
-		
-
-		
-	}
-	*/
+	// BEGIN MAIN GLUT LOOP
 	glutMainLoop();
-
+	//
     // Copy output vector from GPU buffer to host memory.
     cudaStatus = cudaMemcpy(CAGrid, d_CAGrid, size * sizeof(bool), cudaMemcpyDeviceToHost);
     if (cudaStatus != cudaSuccess) {
@@ -913,6 +921,7 @@ cudaError_t CudaCAHelper(bool *CAGrid, bool *NextCAGrid, unsigned int size,unsig
         goto Error;
     
 	}
+	// BEGIN FREE ALLOCATED MEMORY
 	free(CAGrid);
 	free(tempgrid);
 	free(NextCAGrid);
@@ -928,4 +937,5 @@ Error:
 	glDeleteBuffers(1, &GLbufferID);
 	glDeleteTextures(1, &GLtexture);
     return cudaStatus;
+	//
 }
