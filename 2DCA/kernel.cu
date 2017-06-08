@@ -13,8 +13,8 @@
 
 
 // MANUALLY EDIT BELOW 
-#define PanelW 100		// Texture Width
-#define PanelH 100		// Texture Height
+#define PanelW 1000		// Texture Width
+#define PanelH 1000		// Texture Height
 #define GENS 500		// number of generations to time 
 #define tcompstart true	 // starts timing CPU before using GPU for given GENS
 //#define ZeroBoundary		//if defined its only zero boundary at the 4 edges that defines the viewport
@@ -343,9 +343,16 @@ void CPUNeighbours(bool *CAGrid, bool *NextCAGrid, int WorldH, int WorldW)
 }
 /// CPUInsertGPU: Inserts a cell for the given location on the CPU and passes to GPU
 /// Inputs: world width,height,window position of the chosen cell int2(x,y), pointer to CPU memory of the grid
+/// IMPORTANT TODO : Location of the inserted cell is not accurate need to implement correct location scaling from window to texture
 void CPUInsertGPU(unsigned int WorldW,unsigned int WorldH ,int2 i_loc, bool *CAGrid)
 {
-	int myid = (i_loc.x/float(newpanelw/WorldW)) + (i_loc.y/float(newpanelh/WorldH))*WorldW;
+	float scalew = newpanelw / WorldW;
+	float scaleh = newpanelh / WorldH;
+	int myid = 0;
+	if (scalew > 2.0 && scaleh > 2.0)
+		myid = (i_loc.x / float(newpanelw / WorldW)) + (i_loc.y / float(newpanelh / WorldH))*WorldW;
+	else
+		myid = i_loc.x + i_loc.y * newpanelw;
 	if(myid <= WorldW*WorldH && myid>0)CAGrid[myid] = !CAGrid[myid];
 }
 /// CUDA : NextGenKernel : Calculates the neighbours of each cell and puts the new state of the cell in NextCAGrid
