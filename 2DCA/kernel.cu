@@ -13,10 +13,10 @@
 
 
 // MANUALLY EDIT BELOW 
-#define PanelW 1000		// Texture Width
-#define PanelH 1000		// Texture Height
+#define PanelW 500		// Texture Width
+#define PanelH 500		// Texture Height
 #define GENS 500		// number of generations to time 
-#define tcompstart true	 // starts timing CPU before using GPU for given GENS
+#define tcompstart false	 // starts timing CPU before using GPU for given GENS
 //#define ZeroBoundary		//if defined its only zero boundary at the 4 edges that defines the viewport
 //
 
