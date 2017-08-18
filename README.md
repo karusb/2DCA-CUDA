@@ -3,6 +3,7 @@
 - Zoom in,zoom out options
 - Move around the world using mouse
 - Play god, kill or spawn cells.
+- See this post for more: https://steemit.com/life/@bazmus/what-is-cellular-automata-playing-god-in-the-world-you-create-steemit-special
 # Compiling and Running
 - Clone this project in to visual studio and open the solution
 - Copy all the contents in the GL directory to your Windows\system32 or/and Windows\sysWOW64 directories.
